@@ -4,43 +4,79 @@ import Slot from "../models/Slot.js";
 const router = express.Router();
 
 /**
+ * ADMIN: Create or Update Slot
  * POST /api/slots/create
- * body: { date, timeRange, capacity }
  */
 router.post("/create", async (req, res) => {
   try {
-    const { date, timeRange, capacity } = req.body;
+    const {
+      date,
+      timeRange,
+      darshanType,
+      normalCapacity,
+      priorityCapacity,
+      otherCapacity, // ✅ NEW
+    } = req.body;
 
-    if (!date || !timeRange) {
-      return res.status(400).json({ success: false, message: "date and timeRange are required" });
+    if (!date || !timeRange || !darshanType) {
+      return res.status(400).json({ message: "Missing required fields" });
     }
 
-    const existing = await Slot.findOne({ date, timeRange });
+    const price = darshanType === "SEEGHRA" ? 300 : 0;
+
+    const existing = await Slot.findOne({ date, timeRange, darshanType });
+
+    // ---------------- UPDATE EXISTING SLOT ----------------
     if (existing) {
-      return res.status(409).json({ success: false, message: "Slot already exists" });
+      existing.queues.normal.capacity = normalCapacity;
+      existing.queues.priority.capacity = priorityCapacity;
+
+      // ✅ NEW — update other queue
+      existing.queues.other.capacity = otherCapacity;
+
+      await existing.save();
+
+      return res.json({ success: true, slot: existing });
     }
 
+    // ---------------- CREATE NEW SLOT ----------------
     const slot = await Slot.create({
       date,
       timeRange,
-      capacity: capacity || 200,
+      darshanType,
+      price,
+      queues: {
+        normal: { capacity: normalCapacity },
+        priority: { capacity: priorityCapacity },
+
+        // ✅ NEW — added without touching existing structure
+        other: { capacity: otherCapacity },
+      },
     });
 
-    res.json({ success: true, message: "Slot created", slot });
+    res.json({ success: true, slot });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
 /**
- * GET /api/slots
+ * PILGRIM: Get slots by date & darshan
+ * GET /api/slots/by-date?date=YYYY-MM-DD&darshanType=GENERAL
  */
-router.get("/", async (req, res) => {
+router.get("/by-date", async (req, res) => {
   try {
-    const slots = await Slot.find().sort({ date: 1, timeRange: 1 });
+    const { date, darshanType } = req.query;
+
+    const slots = await Slot.find({
+      date,
+      darshanType,
+      isActive: true,
+    }).sort({ timeRange: 1 });
+
     res.json({ success: true, slots });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
